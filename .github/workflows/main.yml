@@ -2078,9 +2078,9 @@ jobs:
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
         with:
-          cluster_name: ${{ env.CLUSTER_NAME }}
-          location: ${{ env.CLUSTER_ZONE }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
+          cluster_name: ${{ secrets.CLUSTER_NAME }}
+          location: ${{ secrets.CLUSTER_ZONE }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Verify kubectl connection
         run: kubectl get nodes
