@@ -1,3 +1,4 @@
+
 // src/services/api.service.js
 import axios from 'axios';
 import { API_CONFIG } from '../config/api.config';
@@ -30,6 +31,12 @@ apiClient.interceptors.response.use(
     return response;
   },
   error => {
+    // Handle 304 Not Modified as a successful response
+    if (error.response && error.response.status === 304) {
+      console.log(`API Response from ${error.config.url}: Status 304 (Not Modified) - treating as success`);
+      return Promise.resolve({ data: { status: "success" }, status: 304 });
+    }
+    
     if (error.response) {
       console.error(`API Error from ${error.config.url}: Status ${error.response.status}`, error.response.data);
     } else if (error.request) {
@@ -58,8 +65,23 @@ const apiService = {
     try {
       const response = await apiClient.get(endpoint);
       console.log(`Status response for ${endpoint}:`, response.data);
-      return response.data;
+      
+      // Consider any successful response (including 304) as success
+      if (response.status === 200 || response.status === 304) {
+        return { status: "success" };
+      }
+      
+      // If the response has a status field, use that
+      if (response.data && response.data.status) {
+        return { status: response.data.status === "ok" ? "success" : "error" };
+      }
+      
+      return { status: "success" };
     } catch (error) {
+      // If it's a 304, consider it a success
+      if (error.response && error.response.status === 304) {
+        return { status: "success" };
+      }
       console.error(`API status check failed for ${endpoint}:`, error);
       return { status: "error" };
     }
