@@ -635,68 +635,68 @@ jobs:
         name: backend-container-scan-summary
         path: trivy-backend-summary.md
         retention-days: 30
-deploy:
-  needs: [backend-container-scan, frontend-container-scan]
+  deploy:
+  needs: [ backend-container-scan, frontend-container-scan ]
   runs-on: ubuntu-latest
   steps:
-    - name: Clean workspace
-      run: |
-        rm -rf *
-        rm -rf .git
+  - name: Clean workspace
+    run: |
+      rm -rf *
+      rm -rf .git
 
-    - name: Checkout Backend Code
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ env.BACKEND_REPO }}
-        token: ${{ secrets.GH_PAT }}
-        clean: true
-        force: true
+  - name: Checkout Backend Code
+    uses: actions/checkout@v4
+    with:
+      repository: ${{ env.BACKEND_REPO }}
+      token: ${{ secrets.GH_PAT }}
+      clean: true
+      force: true
 
-    - name: Authenticate to Google Cloud
-      id: auth
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-        export_environment_variables: true
-        create_credentials_file: true
-        
-    - name: Setup gcloud CLI
-      uses: google-github-actions/setup-gcloud@v1
-      with:
-        project_id: ${{ env.GCP_PROJECT_ID }}
-        install_components: 'gke-gcloud-auth-plugin'
+  - name: Authenticate to Google Cloud
+    id: auth
+    uses: google-github-actions/auth@v1
+    with:
+      credentials_json: ${{ secrets.GCP_SA_KEY }}
+      export_environment_variables: true
+      create_credentials_file: true
 
-    - name: Get GKE credentials directly with gcloud
-      run: |
-        gcloud container clusters get-credentials cluster-1 --zone asia-south2-a --project nimble-net-452115-t9
-        kubectl get nodes
+  - name: Setup gcloud CLI
+    uses: google-github-actions/setup-gcloud@v1
+    with:
+      project_id: ${{ env.GCP_PROJECT_ID }}
+      install_components: 'gke-gcloud-auth-plugin'
 
-    - name: Install Helm
-      uses: azure/setup-helm@v3
-      with:
-        version: ${{ env.HELM_VERSION }}
+  - name: Get GKE credentials directly with gcloud
+    run: |
+      gcloud container clusters get-credentials cluster-1 --zone asia-south2-a --project nimble-net-452115-t9
+      kubectl get nodes
 
-    - name: Add Helm repositories
-      run: |
-        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-        helm repo update
+  - name: Install Helm
+    uses: azure/setup-helm@v3
+    with:
+      version: ${{ env.HELM_VERSION }}
 
-    - name: Deploy application with Helm
-      run: |
-        # Update the values file with the latest image tags
-        sed -i "s|backendImage:.*|backendImage: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}|g" values-prod.yaml
-        sed -i "s|frontendImage:.*|frontendImage: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}|g" values-prod.yaml
-        
-        # Using the Chart.yaml in the root directory
-        helm upgrade --install imdb-backend . -f values-prod.yaml -n prod --create-namespace
+  - name: Add Helm repositories
+    run: |
+      helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+      helm repo update
 
-    - name: Restart deployments
-      run: |
-        kubectl rollout restart deployment backend-deployment -n prod
-        kubectl rollout restart deployment frontend-deployment -n prod
-        kubectl rollout restart deployment ingress-nginx-controller -n ingress-nginx || true
+  - name: Deploy application with Helm
+    run: |
+      # Update the values file with the latest image tags
+      sed -i "s|backendImage:.*|backendImage: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}|g" values-prod.yaml
+      sed -i "s|frontendImage:.*|frontendImage: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}|g" values-prod.yaml
 
-    - name: Verify deployment
-      run: |
-        kubectl get all -n prod
-        kubectl get all -n ingress-nginx
+      # Using the Chart.yaml in the root directory
+      helm upgrade --install imdb-backend . -f values-prod.yaml -n prod --create-namespace
+
+  - name: Restart deployments
+    run: |
+      kubectl rollout restart deployment backend-deployment -n prod
+      kubectl rollout restart deployment frontend-deployment -n prod
+      kubectl rollout restart deployment ingress-nginx-controller -n ingress-nginx || true
+
+  - name: Verify deployment
+    run: |
+      kubectl get all -n prod
+      kubectl get all -n ingress-nginx
