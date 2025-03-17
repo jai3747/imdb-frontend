@@ -7,9 +7,9 @@ on:
     branches: [ main ]
 
 env:
-  # Updated repository names
-  FRONTEND_REPO: imdb-frontend
-  BACKEND_REPO: imdb-backend
+  # Updated repository names with correct format (owner/repo)
+  FRONTEND_REPO: jai3747/imdb-frontend
+  BACKEND_REPO: jai3747/imdb-backend
   FRONTEND_IMAGE: jai3747/imdb-clone-frontend-prod
   BACKEND_IMAGE: jai3747/imdb-clone-backend-prod
 
