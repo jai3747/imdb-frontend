@@ -10,7 +10,7 @@ import {
   Box,
   CircularProgress,
 } from "@mui/material";
-import { Route, Routes, useNavigate } from "react-router-dom";
+import { Route, Routes, useNavigate, useLocation } from "react-router-dom";
 import {
   Brightness7 as Brightness7Icon,
   Brightness4 as Brightness4Icon,
@@ -19,6 +19,7 @@ import {
   Refresh as RefreshIcon,
 } from "@mui/icons-material";
 import apiService from "./services/api.service";
+import metricsService from "./services/metrics.service";
 import { API_CONFIG } from "./config/api.config";
 import AddMovie from "./AddMovie";
 import Movie from "./Movie";
@@ -30,6 +31,7 @@ import "./App.css";
 function App() {
   const [mode, setMode] = useState(() => localStorage.getItem("theme") || "dark");
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [statuses, setStatuses] = useState({
     backend: false,
@@ -52,9 +54,25 @@ function App() {
     },
   });
 
+  // Initialize metrics service
+  useEffect(() => {
+    metricsService.startReporting(30000); // Report every 30 seconds
+    
+    return () => {
+      metricsService.stopReporting();
+    };
+  }, []);
+
+  // Track page views
+  useEffect(() => {
+    const currentPage = location.pathname || '/';
+    metricsService.recordPageView(currentPage);
+  }, [location.pathname]);
+
   const checkAllStatuses = useCallback(async () => {
     try {
       setLoading(true);
+      const startTime = performance.now();
       
       // Check backend health and database status
       let healthData;
@@ -66,10 +84,19 @@ function App() {
         backendStatus = true;
         databaseStatus = healthData.database === "connected";
         console.log("Health check succeeded:", healthData);
+        
+        // Record successful API call
+        const endTime = performance.now();
+        metricsService.recordApiCall("health", "success", endTime - startTime);
       } catch (error) {
         console.error("Health check failed:", error);
         backendStatus = false;
         databaseStatus = false;
+        
+        // Record failed API call
+        const endTime = performance.now();
+        metricsService.recordApiCall("health", "error", endTime - startTime);
+        metricsService.recordError("api", "Health check failed");
       }
       
       // Check individual API endpoints status
@@ -78,27 +105,45 @@ function App() {
       let producerApiStatus = false;
       
       try {
+        const actorStartTime = performance.now();
         const actorStatus = await apiService.checkApiStatus(API_CONFIG.ENDPOINTS.API_STATUS.ACTOR);
         actorApiStatus = actorStatus.status === "success";
         console.log("Actor API status check:", actorStatus);
+        
+        // Record API call
+        const actorEndTime = performance.now();
+        metricsService.recordApiCall("actor-status", "success", actorEndTime - actorStartTime);
       } catch (error) {
         console.error("Actor API status check failed:", error);
+        metricsService.recordError("api", "Actor API check failed");
       }
       
       try {
+        const movieStartTime = performance.now();
         const movieStatus = await apiService.checkApiStatus(API_CONFIG.ENDPOINTS.API_STATUS.MOVIE);
         movieApiStatus = movieStatus.status === "success";
         console.log("Movie API status check:", movieStatus);
+        
+        // Record API call
+        const movieEndTime = performance.now();
+        metricsService.recordApiCall("movie-status", "success", movieEndTime - movieStartTime);
       } catch (error) {
         console.error("Movie API status check failed:", error);
+        metricsService.recordError("api", "Movie API check failed");
       }
       
       try {
+        const producerStartTime = performance.now();
         const producerStatus = await apiService.checkApiStatus(API_CONFIG.ENDPOINTS.API_STATUS.PRODUCER);
         producerApiStatus = producerStatus.status === "success";
         console.log("Producer API status check:", producerStatus);
+        
+        // Record API call
+        const producerEndTime = performance.now();
+        metricsService.recordApiCall("producer-status", "success", producerEndTime - producerStartTime);
       } catch (error) {
         console.error("Producer API status check failed:", error);
+        metricsService.recordError("api", "Producer API check failed");
       }
       
       // Update statuses
@@ -109,6 +154,9 @@ function App() {
         movieApi: movieApiStatus,
         producerApi: producerApiStatus,
       });
+      
+      // Record service status metrics
+      metricsService.recordUiInteraction("status-panel", "update");
       
       console.log("Final API Status Check:", {
         backend: backendStatus,
@@ -127,6 +175,7 @@ function App() {
         movieApi: false,
         producerApi: false,
       });
+      metricsService.recordError("status-check", "Overall check failed");
     } finally {
       setLoading(false);
     }
@@ -140,6 +189,8 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem("theme", mode);
+    // Record theme change
+    metricsService.recordUiInteraction("theme", mode);
   }, [mode]);
 
   useEffect(() => {
@@ -170,7 +221,10 @@ function App() {
 
   const NavButton = ({ to, children }) => (
     <Button
-      onClick={() => navigate(to)}
+      onClick={() => {
+        navigate(to);
+        metricsService.recordUiInteraction("navigation", to);
+      }}
       color="inherit"
       sx={{
         mx: 1,
@@ -220,7 +274,10 @@ function App() {
               )}
 
               <Button
-                onClick={checkAllStatuses}
+                onClick={() => {
+                  checkAllStatuses();
+                  metricsService.recordUiInteraction("button", "refresh-status");
+                }}
                 color="inherit"
                 disabled={loading}
                 startIcon={<RefreshIcon />}
@@ -229,7 +286,10 @@ function App() {
               </Button>
 
               <Button
-                onClick={() => setMode(mode === "light" ? "dark" : "light")}
+                onClick={() => {
+                  setMode(mode === "light" ? "dark" : "light");
+                  metricsService.recordUiInteraction("button", "toggle-theme");
+                }}
                 color="inherit"
                 startIcon={mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
               >
