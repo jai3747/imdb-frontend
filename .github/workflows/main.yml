@@ -688,7 +688,7 @@ jobs:
           sed -i "s|frontendImage:.*|frontendImage: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}|g" values-prod.yaml
 
           # Using the Chart.yaml in the root directory
-          helm upgrade --install imdb-backend . -f values-prod.yaml -n prod --create-namespace
+           helm upgrade --install imdb-clone imdb-clone -f imdb-clone/values-prod.yaml 
 
       - name: Restart deployments
         run: |
