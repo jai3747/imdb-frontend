@@ -168,4 +168,4 @@ class MetricsService {
 }
 
 const metricsService = new MetricsService();
-export default
+export default;
