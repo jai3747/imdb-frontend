@@ -1,12 +1,19 @@
-// src/server/metrics.js
+// server.js
 const express = require('express');
-const router = express.Router();
+const path = require('path');
+const compression = require('compression');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Store metrics in memory (simple implementation)
+// Middleware
+app.use(compression());
+app.use(express.json());
+
+// In-memory metrics storage
 let metricsData = '';
 
-// Endpoint to receive metrics from client
-router.post('/', (req, res) => {
+// Metrics reporting endpoint
+app.post('/metrics-report', (req, res) => {
   let data = '';
   req.on('data', chunk => {
     data += chunk;
@@ -18,16 +25,20 @@ router.post('/', (req, res) => {
   });
 });
 
-// Endpoint to expose metrics to Prometheus
-router.get('/', (req, res) => {
+// Metrics endpoint for Prometheus
+app.get('/metrics', (req, res) => {
   res.set('Content-Type', 'text/plain');
   res.send(metricsData);
 });
 
-module.exports = router;
+// Serve static files
+app.use(express.static(path.join(__dirname, 'build')));
 
-// Add this to your express server setup:
-/*
-const metricsRouter = require('./metrics');
-app.use('/metrics', metricsRouter);
-*/
+// Handle React routing, return all requests to React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server started on port ${PORT}`);
+});
