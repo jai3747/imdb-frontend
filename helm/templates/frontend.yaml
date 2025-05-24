@@ -1,0 +1,87 @@
+# Frontend Service
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: imdb-clone
+    component: frontend
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: {{ .Values.frontend.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: imdb-clone
+    component: frontend
+---
+{{- end }}
+
+# Frontend Deployment
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: imdb-clone
+    component: frontend
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      app: imdb-clone
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: imdb-clone
+        component: frontend
+        {{- include "imdb-clone.labels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: frontend
+        image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+        imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.frontend.service.targetPort }}
+          name: http
+        env:
+        {{- if .Values.frontend.env }}
+        {{- toYaml .Values.frontend.env | nindent 8 }}
+        {{- end }}
+        {{- if .Values.frontend.config.backendApiPath }}
+        - name: REACT_APP_BACKEND_PATH
+          value: {{ .Values.frontend.config.backendApiPath | quote }}
+        {{- end }}
+        {{- if .Values.global.environment }}
+        - name: NODE_ENV
+          value: {{ .Values.global.environment | quote }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.frontend.healthCheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.frontend.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.frontend.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.frontend.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.frontend.probes.liveness.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.frontend.healthCheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.frontend.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.frontend.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.frontend.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.frontend.probes.readiness.failureThreshold }}
+        resources:
+          {{- toYaml .Values.frontend.resources | nindent 10 }}
+---
+{{- end }}

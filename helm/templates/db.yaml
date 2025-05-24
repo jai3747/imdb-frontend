@@ -1,0 +1,125 @@
+# MongoDB PersistentVolumeClaim
+{{- if and .Values.mongodb.enabled .Values.mongodb.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mongodb
+    component: database
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.mongodb.persistence.size }}
+  {{- if .Values.mongodb.persistence.storageClass }}
+  storageClassName: {{ .Values.mongodb.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+
+# MongoDB Service
+{{- if .Values.mongodb.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mongodb
+    component: database
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.mongodb.service.type }}
+  ports:
+  - port: {{ .Values.mongodb.service.port }}
+    targetPort: mongodb
+    protocol: TCP
+    name: mongodb
+  selector:
+    app: mongodb
+    component: database
+---
+{{- end }}
+
+# MongoDB Deployment
+{{- if and .Values.mongodb.enabled (not .Values.mongodb.atlas.enabled) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mongodb
+    component: database
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mongodb.replicaCount }}
+  selector:
+    matchLabels:
+      app: mongodb
+      component: database
+  template:
+    metadata:
+      labels:
+        app: mongodb
+        component: database
+        {{- include "imdb-clone.labels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: mongodb
+        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+        imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.mongodb.port }}
+          name: mongodb
+        env:
+        {{- if .Values.mongodb.auth.enabled }}
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: {{ .Values.mongodb.auth.rootUser | quote }}
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          value: {{ .Values.mongodb.auth.rootPassword | quote }}
+        {{- end }}
+        - name: MONGO_INITDB_DATABASE
+          value: {{ .Values.mongodb.database | quote }}
+        livenessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: {{ .Values.mongodb.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.mongodb.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.mongodb.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.mongodb.probes.liveness.failureThreshold }}
+          successThreshold: {{ .Values.mongodb.probes.liveness.successThreshold }}
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: {{ .Values.mongodb.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.mongodb.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.mongodb.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.mongodb.probes.readiness.failureThreshold }}
+          successThreshold: {{ .Values.mongodb.probes.readiness.successThreshold }}
+        resources:
+          {{- toYaml .Values.mongodb.resources | nindent 10 }}
+        {{- if .Values.mongodb.persistence.enabled }}
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: {{ .Values.mongodb.persistence.mountPath }}
+        {{- end }}
+      {{- if .Values.mongodb.persistence.enabled }}
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: mongodb-data  # Fixed: Changed from mongodb-pvc to mongodb-data
+      {{- end }}
+---
+{{- end }}
+

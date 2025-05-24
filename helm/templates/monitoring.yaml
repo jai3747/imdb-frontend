@@ -1,0 +1,61 @@
+# ServiceMonitor for Prometheus (if monitoring is enabled)
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: imdb-clone-servicemonitor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: imdb-clone
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: imdb-clone
+  endpoints:
+  {{- if .Values.frontend.enabled }}
+  - port: http
+    path: /metrics
+    targetPort: {{ .Values.frontend.service.targetPort }}
+    interval: 30s
+    scrapeTimeout: 10s
+  {{- end }}
+  {{- if .Values.backend.enabled }}
+  - port: http
+    path: /metrics
+    targetPort: {{ .Values.backend.service.targetPort }}
+    interval: 30s
+    scrapeTimeout: 10s
+  {{- end }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+---
+{{- end }}
+
+# MongoDB ServiceMonitor
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheus.enabled .Values.mongodb.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mongodb-servicemonitor
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mongodb
+    component: database
+    {{- include "imdb-clone.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: mongodb
+      component: database
+  endpoints:
+  - port: mongodb
+    path: /metrics
+    targetPort: {{ .Values.mongodb.port }}
+    interval: 30s
+    scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+{{- end }}

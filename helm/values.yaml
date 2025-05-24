@@ -1,0 +1,213 @@
+# Global configuration
+global:
+  namespace: imdb-clone
+  environment: production
+
+# Frontend configuration
+frontend:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: jai3747/imdb-clone-frontend-prod
+    tag: latest
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+
+  config:
+    backendApiPath: /api/health
+
+  env:
+  - name: REACT_APP_API_URL
+    value: "http://imdb-app.jayachandran.xyz/api"
+
+  healthCheck:
+    path: /
+
+  probes:
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# Backend configuration
+backend:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: jai3747/imdb-clone-backend-prod
+    tag: latest
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+
+  env:
+  - name: JWT_SECRET
+    value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEyMywidXNlcm5hbWUiOiJkZW1vX3VzZXIiLCJpYXQiOjE3MTY1MTg0MDAsImV4cCI6MTcyNDE5ODQwMH0.JEjI4pZu3SwhFn_HjcWZ4NY0Y"
+  - name: JWT_EXPIRES_IN
+    value: "90d"
+
+  healthCheck:
+    path: /api/health
+
+  probes:
+    readiness:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# MongoDB configuration
+mongodb:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: mongo
+    tag: "6.0"
+    pullPolicy: IfNotPresent
+
+  port: 27017
+  database: imdb_clone
+
+  auth:
+    enabled: false
+    rootUser: "JAYACHANDRAN"
+    rootPassword: "KQJrxDn44181NsqT"
+
+  service:
+    type: ClusterIP
+    port: 27017
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    mountPath: /data/db
+    storageClass: ""
+
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 10
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  hpa:
+    enabled: false # Generally not recommended for databases
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 85
+
+  # MongoDB Atlas configuration (alternative to local MongoDB)
+  atlas:
+    enabled: false
+    mongoUrl: "mongodb+srv://JAYACHANDRAN:KQJrxDn44181NsqT@cluster0.w45he.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  host: imdb-app.jayachandran.xyz
+
+  # Path configurations
+  backend:
+    path: /api/health
+    pathType: Prefix
+
+  frontend:
+    path: /
+    pathType: Prefix
+
+  # Proxy settings
+  proxyBodySize: "10m"
+  proxyConnectTimeout: "30"
+  proxyReadTimeout: "120"
+  proxySendTimeout: "120"
+
+  # CORS configuration
+  cors:
+    enabled: true
+    allowOrigin: "http://imdb-app.jayachandran.xyz"
+    allowMethods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
+    allowHeaders: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+    allowCredentials: "true"
+
+  # TLS configuration
+  tls:
+    enabled: false
+    secretName: imdb-clone-tls
+
+  # Custom annotations (optional)
+  customAnnotations: {}
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# Monitoring and observability
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true

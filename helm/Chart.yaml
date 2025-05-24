@@ -1,0 +1,20 @@
+apiVersion: v2
+name: imdb-clone
+description: A Helm chart for IMDB Clone application with Frontend, Backend, and MongoDB
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+- imdb
+- movie
+- database
+- react
+- nodejs
+- mongodb
+home: https://github.com/your-org/imdb-clone
+sources:
+- https://github.com/your-org/imdb-clone
+maintainers:
+- name: Your Name
+  email: your.email@example.com
+dependencies: []
