@@ -5,8 +5,11 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Remove existing lock file to avoid conflicts
+RUN rm -f package-lock.json
+
 # Install dependencies
-RUN npm ci --legacy-peer-deps
+RUN npm install --legacy-peer-deps
 
 # Copy source code
 COPY . .
@@ -14,6 +17,9 @@ COPY . .
 # Set environment variables for build
 ARG REACT_APP_API_URL=http://imdb-app.jayachandran.xyz/api
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
+
+# Update browserslist database
+RUN npx update-browserslist-db@latest
 
 # Build the application
 RUN npm run build
