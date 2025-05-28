@@ -82,8 +82,19 @@ function App() {
       try {
         healthData = await apiService.checkHealth();
         backendStatus = true;
-        databaseStatus = healthData.database === "connected";
+        
+        // Fixed: Check the correct database status field
+        // Your backend returns database: { status: "connected" }, not database: "connected"
+        if (healthData.database && healthData.database.status) {
+          databaseStatus = healthData.database.status === "connected";
+        } else if (healthData.database === "connected") {
+          databaseStatus = true;
+        } else {
+          databaseStatus = false;
+        }
+        
         console.log("Health check succeeded:", healthData);
+        console.log("Database status extracted:", databaseStatus);
         
         // Record successful API call
         const endTime = performance.now();
@@ -99,72 +110,73 @@ function App() {
         metricsService.recordError("api", "Health check failed");
       }
       
-      // Check individual API endpoints status
+      // If backend is online, check individual APIs with better error handling
       let actorApiStatus = false;
       let movieApiStatus = false; 
       let producerApiStatus = false;
       
-      try {
-        const actorStartTime = performance.now();
-        const actorStatus = await apiService.checkApiStatus(API_CONFIG.ENDPOINTS.API_STATUS.ACTOR);
-        actorApiStatus = actorStatus.status === "success";
-        console.log("Actor API status check:", actorStatus);
+      if (backendStatus) {
+        // Check Actor API
+        try {
+          const actorStartTime = performance.now();
+          await apiService.getActors();
+          actorApiStatus = true;
+          console.log("Actor API is working");
+          
+          const actorEndTime = performance.now();
+          metricsService.recordApiCall("actor-check", "success", actorEndTime - actorStartTime);
+        } catch (error) {
+          console.error("Actor API check failed:", error.message);
+          actorApiStatus = false;
+          metricsService.recordError("api", "Actor API check failed");
+        }
         
-        // Record API call
-        const actorEndTime = performance.now();
-        metricsService.recordApiCall("actor-status", "success", actorEndTime - actorStartTime);
-      } catch (error) {
-        console.error("Actor API status check failed:", error);
-        metricsService.recordError("api", "Actor API check failed");
-      }
-      
-      try {
-        const movieStartTime = performance.now();
-        const movieStatus = await apiService.checkApiStatus(API_CONFIG.ENDPOINTS.API_STATUS.MOVIE);
-        movieApiStatus = movieStatus.status === "success";
-        console.log("Movie API status check:", movieStatus);
+        // Check Movie API
+        try {
+          const movieStartTime = performance.now();
+          await apiService.getMovies();
+          movieApiStatus = true;
+          console.log("Movie API is working");
+          
+          const movieEndTime = performance.now();
+          metricsService.recordApiCall("movie-check", "success", movieEndTime - movieStartTime);
+        } catch (error) {
+          console.error("Movie API check failed:", error.message);
+          movieApiStatus = false;
+          metricsService.recordError("api", "Movie API check failed");
+        }
         
-        // Record API call
-        const movieEndTime = performance.now();
-        metricsService.recordApiCall("movie-status", "success", movieEndTime - movieStartTime);
-      } catch (error) {
-        console.error("Movie API status check failed:", error);
-        metricsService.recordError("api", "Movie API check failed");
-      }
-      
-      try {
-        const producerStartTime = performance.now();
-        const producerStatus = await apiService.checkApiStatus(API_CONFIG.ENDPOINTS.API_STATUS.PRODUCER);
-        producerApiStatus = producerStatus.status === "success";
-        console.log("Producer API status check:", producerStatus);
-        
-        // Record API call
-        const producerEndTime = performance.now();
-        metricsService.recordApiCall("producer-status", "success", producerEndTime - producerStartTime);
-      } catch (error) {
-        console.error("Producer API status check failed:", error);
-        metricsService.recordError("api", "Producer API check failed");
+        // Check Producer API
+        try {
+          const producerStartTime = performance.now();
+          await apiService.getProducers();
+          producerApiStatus = true;
+          console.log("Producer API is working");
+          
+          const producerEndTime = performance.now();
+          metricsService.recordApiCall("producer-check", "success", producerEndTime - producerStartTime);
+        } catch (error) {
+          console.error("Producer API check failed:", error.message);
+          producerApiStatus = false;
+          metricsService.recordError("api", "Producer API check failed");
+        }
       }
       
       // Update statuses
-      setStatuses({
+      const newStatuses = {
         backend: backendStatus,
         database: databaseStatus,
         actorApi: actorApiStatus,
         movieApi: movieApiStatus,
         producerApi: producerApiStatus,
-      });
+      };
+      
+      setStatuses(newStatuses);
       
       // Record service status metrics
       metricsService.recordUiInteraction("status-panel", "update");
       
-      console.log("Final API Status Check:", {
-        backend: backendStatus,
-        database: databaseStatus,
-        actorApi: actorApiStatus,
-        movieApi: movieApiStatus,
-        producerApi: producerApiStatus,
-      });
+      console.log("Final API Status Check:", newStatuses);
       
     } catch (error) {
       console.error("Overall status check failed:", error);
@@ -203,17 +215,20 @@ function App() {
         display: "flex",
         alignItems: "center",
         bgcolor: isOnline ? "success.main" : "error.main",
-        opacity: 0.8,
+        color: "white",
+        opacity: 0.9,
         py: 0.5,
         px: 2,
         borderRadius: 1,
         mr: 1,
+        fontSize: "0.75rem",
+        fontWeight: "bold",
       }}
     >
       {isOnline ? (
-        <CheckCircleIcon sx={{ fontSize: 20, mr: 1 }} />
+        <CheckCircleIcon sx={{ fontSize: 16, mr: 0.5 }} />
       ) : (
-        <CancelIcon sx={{ fontSize: 20, mr: 1 }} />
+        <CancelIcon sx={{ fontSize: 16, mr: 0.5 }} />
       )}
       {`${label} ${isOnline ? "ONLINE" : "OFFLINE"}`}
     </Box>
@@ -260,7 +275,7 @@ function App() {
               <NavButton to="/add-producer">ADD PRODUCER</NavButton>
             </Box>
 
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               {loading ? (
                 <CircularProgress size={20} color="inherit" />
               ) : (
@@ -281,6 +296,7 @@ function App() {
                 color="inherit"
                 disabled={loading}
                 startIcon={<RefreshIcon />}
+                size="small"
               >
                 Refresh
               </Button>
@@ -292,6 +308,7 @@ function App() {
                 }}
                 color="inherit"
                 startIcon={mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
+                size="small"
               >
                 {mode === "light" ? "DARK" : "LIGHT"}
               </Button>

@@ -1,16 +1,27 @@
-// config/api.config.js
-export const API_CONFIG = {
-  BASE_URL: process.env.REACT_APP_API_URL || 'http://imdb-app.jayachandran.xyz/api',
+
+// src/config/api.config.js
+const API_CONFIG = {
+  BASE_URL: 'http://localhost:5000/api',
+  DIRECT_BASE_URL: 'http://localhost:5000',
   TIMEOUT: 10000,
   ENDPOINTS: {
     HEALTH: '/health',
     MOVIES: '/movies',
     ACTORS: '/actors',
     PRODUCERS: '/producers',
+    METRICS_REPORT: '/metrics-report',
+    // Fixed API_STATUS endpoints - these should be simple GET endpoints that return status
     API_STATUS: {
-      MOVIE: '/movies/status',
-      ACTOR: '/actors/status',
-      PRODUCER: '/producers/status'
+      ACTOR: '/actors',      // Just check if actors endpoint responds
+      MOVIE: '/movies',      // Just check if movies endpoint responds  
+      PRODUCER: '/producers' // Just check if producers endpoint responds
     }
   }
 };
+
+// Helper function to get direct base URL (without /api prefix)
+const getDirectBaseURL = () => {
+  return API_CONFIG.DIRECT_BASE_URL;
+};
+
+export { API_CONFIG, getDirectBaseURL };

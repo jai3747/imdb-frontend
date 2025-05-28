@@ -1,4 +1,5 @@
-// // // src/services/metrics.service.jsimport axios from 'axios';
+// src/services/metrics.service.js
+import axios from 'axios';
 
 class MetricsService {
   constructor() {
@@ -10,7 +11,8 @@ class MetricsService {
       errors: {}
     };
 
-    this.metricsEndpoint = process.env.REACT_APP_METRICS_ENDPOINT || '/metrics-report';
+    // Fixed: Point to backend server port instead of frontend port
+    this.metricsEndpoint = process.env.REACT_APP_METRICS_ENDPOINT || 'http://localhost:5000/metrics-report';
     this.reportingInterval = null;
 
     // Initialize performance observer for page load metrics
@@ -164,29 +166,42 @@ class MetricsService {
     try {
       const metricsData = this.getFormattedMetrics();
 
-      // If the endpoint is an absolute URL, send metrics there
-      if (this.metricsEndpoint.startsWith('http')) {
-        await axios.post(this.metricsEndpoint, metricsData, {
-          headers: {
-            'Content-Type': 'text/plain'
-          }
-        });
-      } else {
-        // Send metrics to the server endpoint
-        await axios.post(this.metricsEndpoint, metricsData, {
-          headers: {
-            'Content-Type': 'text/plain'
-          }
-        });
-        
-        // For development, also log metrics to console
-        if (process.env.NODE_ENV !== 'production') {
-          console.log("Frontend Metrics:");
-          console.log(metricsData);
-        }
+      // Send metrics to the backend server
+      await axios.post(this.metricsEndpoint, metricsData, {
+        headers: {
+          'Content-Type': 'text/plain'
+        },
+        timeout: 5000 // Add timeout to prevent hanging requests
+      });
+
+      // For development, also log metrics to console
+      if (process.env.NODE_ENV !== 'production') {
+        console.log("✅ Frontend metrics sent successfully");
+        console.log("📊 Metrics data:", metricsData);
       }
     } catch (error) {
-      console.error("Failed to report metrics:", error);
+      // More detailed error logging
+      if (error.code === 'ECONNREFUSED') {
+        console.error("❌ Backend server not running on port 5000");
+      } else if (error.response) {
+        console.error("❌ Failed to report metrics - Server responded with:", error.response.status, error.response.statusText);
+      } else if (error.request) {
+        console.error("❌ Failed to report metrics - No response from server:", error.message);
+      } else {
+        console.error("❌ Failed to report metrics:", error.message);
+      }
+    }
+  }
+
+  // Method to test connection to backend
+  async testConnection() {
+    try {
+      const response = await axios.get('http://localhost:5000/health', { timeout: 3000 });
+      console.log("✅ Backend connection test successful:", response.data);
+      return true;
+    } catch (error) {
+      console.error("❌ Backend connection test failed:", error.message);
+      return false;
     }
   }
 }
