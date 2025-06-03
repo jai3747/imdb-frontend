@@ -1,1 +1,149 @@
 
+name: Container Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      frontend_image:
+        required: true
+        type: string
+        description: 'Frontend Docker image name'
+      backend_image:
+        required: true
+        type: string
+        description: 'Backend Docker image name'
+    secrets:
+      DOCKER_USERNAME:
+        required: false
+      DOCKER_PASSWORD:
+        required: false
+
+env:
+  FRONTEND_IMAGE: ${{ inputs.frontend_image }}
+  BACKEND_IMAGE: ${{ inputs.backend_image }}
+
+jobs:
+  # Container Scans - Run after build and push
+  frontend-container-scan:
+    name: 🐳 Frontend Container Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf *
+        rm -rf .git
+
+    - name: Set up Trivy
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install -y trivy
+
+    - name: Generate timestamp
+      id: timestamp
+      run: echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Scan Frontend Container Image
+      run: |
+        trivy image --format json --output trivy-frontend-report.json ${{ env.FRONTEND_IMAGE }}:latest
+
+    - name: Format Scan Results
+      run: |
+        echo "# Frontend Container Scan Results" > trivy-frontend-summary.md
+        echo "## Image: ${{ env.FRONTEND_IMAGE }}:latest" >> trivy-frontend-summary.md
+        echo "### Scan Date: $(date)" >> trivy-frontend-summary.md
+        echo "### Vulnerabilities:" >> trivy-frontend-summary.md
+
+        # Parse JSON and extract key information
+        if [ -f trivy-frontend-report.json ]; then
+          HIGH_COUNT=$(grep -o '"Severity":"HIGH"' trivy-frontend-report.json | wc -l)
+          CRITICAL_COUNT=$(grep -o '"Severity":"CRITICAL"' trivy-frontend-report.json | wc -l)
+          
+          echo "- Critical: $CRITICAL_COUNT" >> trivy-frontend-summary.md
+          echo "- High: $HIGH_COUNT" >> trivy-frontend-summary.md
+          
+          # Show top 10 critical vulnerabilities
+          echo "### Top Critical Vulnerabilities:" >> trivy-frontend-summary.md
+          grep -A 10 '"Severity":"CRITICAL"' trivy-frontend-report.json | grep '"PkgName"\|"VulnerabilityID"\|"Title"' | head -30 >> trivy-frontend-summary.md
+        else
+          echo "No scan results found" >> trivy-frontend-summary.md
+        fi
+
+    - name: Upload Detailed Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-container-scan-report
+        path: trivy-frontend-report.json
+        retention-days: 30
+
+    - name: Upload Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-container-scan-summary
+        path: trivy-frontend-summary.md
+        retention-days: 30
+
+  backend-container-scan:
+    name: 🐳 Backend Container Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf *
+        rm -rf .git
+
+    - name: Set up Trivy
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install -y trivy
+
+    - name: Generate timestamp
+      id: timestamp
+      run: echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Scan Backend Container Image
+      run: |
+        trivy image --format json --output trivy-backend-report.json ${{ env.BACKEND_IMAGE }}:latest
+
+    - name: Format Scan Results
+      run: |
+        echo "# Backend Container Scan Results" > trivy-backend-summary.md
+        echo "## Image: ${{ env.BACKEND_IMAGE }}:latest" >> trivy-backend-summary.md
+        echo "### Scan Date: $(date)" >> trivy-backend-summary.md
+        echo "### Vulnerabilities:" >> trivy-backend-summary.md
+
+        # Parse JSON and extract key information
+        if [ -f trivy-backend-report.json ]; then
+          HIGH_COUNT=$(grep -o '"Severity":"HIGH"' trivy-backend-report.json | wc -l)
+          CRITICAL_COUNT=$(grep -o '"Severity":"CRITICAL"' trivy-backend-report.json | wc -l)
+          
+          echo "- Critical: $CRITICAL_COUNT" >> trivy-backend-summary.md
+          echo "- High: $HIGH_COUNT" >> trivy-backend-summary.md
+          
+          # Show top 10 critical vulnerabilities
+          echo "### Top Critical Vulnerabilities:" >> trivy-backend-summary.md
+          grep -A 10 '"Severity":"CRITICAL"' trivy-backend-report.json | grep '"PkgName"\|"VulnerabilityID"\|"Title"' | head -30 >> trivy-backend-summary.md
+        else
+          echo "No scan results found" >> trivy-backend-summary.md
+        fi
+
+    - name: Upload Detailed Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-container-scan-report
+        path: trivy-backend-report.json
+        retention-days: 30
+
+    - name: Upload Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-container-scan-summary
+        path: trivy-backend-summary.md
+        retention-days: 30
