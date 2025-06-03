@@ -1,0 +1,133 @@
+name: Main CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+
+env:
+  MONGO_URL: ${{ secrets.MONGO_URL }}
+  SEMGREP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  BACKEND_API_URL: ${{ secrets.BACKEND_API_URL }}
+  FRONTEND_REPO: jai3747/imdb-frontend
+  BACKEND_REPO: jai3747/imdb-backend
+  FRONTEND_IMAGE: jai3747/imdb-clone-frontend-prod
+  BACKEND_IMAGE: jai3747/imdb-clone-backend-prod
+
+jobs:
+  # Phase 1: Secret Scanning
+  trigger-secret-scan:
+    name: 🔐 Trigger Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger Secret Scan Workflow
+      uses: ./.github/workflows/secret-scan.yml
+      with:
+        frontend_repo: ${{ env.FRONTEND_REPO }}
+        backend_repo: ${{ env.BACKEND_REPO }}
+      secrets: inherit
+
+  # Phase 2: SCA Scanning (after secret scan)
+  trigger-sca-scan:
+    name: 📦 Trigger SCA Scanning
+    needs: trigger-secret-scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger SCA Scan Workflow
+      uses: ./.github/workflows/sca-scan.yml
+      with:
+        frontend_repo: ${{ env.FRONTEND_REPO }}
+        backend_repo: ${{ env.BACKEND_REPO }}
+      secrets: inherit
+
+  # Phase 3: SAST Scanning (after SCA)
+  trigger-sast-scan:
+    name: 🔍 Trigger SAST Scanning
+    needs: trigger-sca-scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger SAST Scan Workflow
+      uses: ./.github/workflows/sast-scan.yml
+      with:
+        frontend_repo: ${{ env.FRONTEND_REPO }}
+        backend_repo: ${{ env.BACKEND_REPO }}
+      secrets: inherit
+
+  # Phase 4: IaC Scanning (after SAST)
+  trigger-iac-scan:
+    name: 🏗️ Trigger IaC Scanning
+    needs: trigger-sast-scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger IaC Scan Workflow
+      uses: ./.github/workflows/iac-scan.yml
+      with:
+        frontend_repo: ${{ env.FRONTEND_REPO }}
+        backend_repo: ${{ env.BACKEND_REPO }}
+      secrets: inherit
+
+  # Phase 5: K8s Scanning (after IaC)
+  trigger-k8s-scan:
+    name: 🛡️ Trigger K8s Scanning
+    needs: trigger-iac-scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger K8s Scan Workflow
+      uses: ./.github/workflows/k8s-scan.yml
+      with:
+        frontend_repo: ${{ env.FRONTEND_REPO }}
+        backend_repo: ${{ env.BACKEND_REPO }}
+      secrets: inherit
+
+  # Phase 6: Build and Push (after all security scans)
+  trigger-build:
+    name: 🚀 Trigger Build & Push
+    needs: trigger-k8s-scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger Build Workflow
+      uses: ./.github/workflows/build-push.yml
+      with:
+        frontend_repo: ${{ env.FRONTEND_REPO }}
+        backend_repo: ${{ env.BACKEND_REPO }}
+        frontend_image: ${{ env.FRONTEND_IMAGE }}
+        backend_image: ${{ env.BACKEND_IMAGE }}
+        backend_api_url: ${{ env.BACKEND_API_URL }}
+      secrets: inherit
+
+  # Phase 7: Container Scanning (after build)
+  # trigger-container-scan:
+  #   name: 🐳 Trigger Container Scanning
+  #   needs: trigger-build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - name: Trigger Container Scan Workflow
+  #     uses: ./.github/workflows/container-scan.yml
+  #     with:
+  #       frontend_image: ${{ env.FRONTEND_IMAGE }}
+  #       backend_image: ${{ env.BACKEND_IMAGE }}
+  #     secrets: inherit
+
+  # Summary Job
+  pipeline-summary:
+    name: 📊 Pipeline Summary
+    needs: [ trigger-container-scan ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Pipeline Summary
+      run: |
+        echo "## 🎯 Pipeline Execution Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Phase | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Secret Scan | ${{ needs.trigger-secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| SCA Scan | ${{ needs.trigger-sca-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| SAST Scan | ${{ needs.trigger-sast-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| IaC Scan | ${{ needs.trigger-iac-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| K8s Scan | ${{ needs.trigger-k8s-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build & Push | ${{ needs.trigger-build.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Container Scan | ${{ needs.trigger-container-scan.result }} |" >> $GITHUB_STEP_SUMMARY

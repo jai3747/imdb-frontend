@@ -1,0 +1,185 @@
+name: SAST (Static Application Security Testing) Scanning
+
+on:
+  workflow_call:
+    inputs:
+      frontend_repo:
+        required: true
+        type: string
+      backend_repo:
+        required: true
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+      SEMGREP_TOKEN:
+        required: true
+
+jobs:
+  frontend-sast:
+    name: 🔍 Frontend SAST Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Frontend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.frontend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Run Semgrep
+      uses: semgrep/semgrep-action@v1
+      continue-on-error: true
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+      with:
+        config: >-
+          p/security-audit p/javascript p/react p/typescript p/owasp-top-ten
+        generateSarif: "1"
+
+    - name: Run Semgrep JSON Output
+      continue-on-error: true
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+      run: |
+        semgrep --config=p/security-audit --config=p/javascript --config=p/react --json --output=semgrep-frontend-results.json . || true
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 🔍 Frontend SAST Scan Results" > sast-scan-summary.md
+        echo "## Repository: ${{ inputs.frontend_repo }}" >> sast-scan-summary.md
+        echo "## Scan Date: $(date)" >> sast-scan-summary.md
+        echo "" >> sast-scan-summary.md
+
+        if [ -f semgrep-frontend-results.json ]; then
+          # Parse Semgrep JSON report
+          TOTAL_FINDINGS=$(jq '.results | length' semgrep-frontend-results.json 2>/dev/null || echo "0")
+          HIGH_FINDINGS=$(jq '[.results[] | select(.extra.severity == "HIGH")] | length' semgrep-frontend-results.json 2>/dev/null || echo "0")
+          MEDIUM_FINDINGS=$(jq '[.results[] | select(.extra.severity == "MEDIUM")] | length' semgrep-frontend-results.json 2>/dev/null || echo "0")
+          LOW_FINDINGS=$(jq '[.results[] | select(.extra.severity == "LOW")] | length' semgrep-frontend-results.json 2>/dev/null || echo "0")
+          ERROR_FINDINGS=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-frontend-results.json 2>/dev/null || echo "0")
+          
+          echo "### Security Findings Summary:" >> sast-scan-summary.md
+          echo "- 🔴 Error: $ERROR_FINDINGS" >> sast-scan-summary.md
+          echo "- 🟠 High: $HIGH_FINDINGS" >> sast-scan-summary.md
+          echo "- 🟡 Medium: $MEDIUM_FINDINGS" >> sast-scan-summary.md
+          echo "- 🟢 Low: $LOW_FINDINGS" >> sast-scan-summary.md
+          echo "- **Total**: $TOTAL_FINDINGS" >> sast-scan-summary.md
+          echo "" >> sast-scan-summary.md
+          
+          if [ "$TOTAL_FINDINGS" -gt 0 ]; then
+            echo "### ⚠️ Action Required: $TOTAL_FINDINGS security issues found" >> sast-scan-summary.md
+            echo "Please review the detailed report and fix security vulnerabilities." >> sast-scan-summary.md
+            echo "" >> sast-scan-summary.md
+            
+            # Show top 5 high/error findings
+            echo "### Top Priority Issues:" >> sast-scan-summary.md
+            jq -r '.results[] | select(.extra.severity == "HIGH" or .extra.severity == "ERROR") | "- **\(.check_id)**: \(.extra.message) (Line: \(.start.line))"' semgrep-frontend-results.json | head -5 >> sast-scan-summary.md 2>/dev/null || true
+          else
+            echo "### ✅ No security issues detected" >> sast-scan-summary.md
+          fi
+        else
+          echo "### ℹ️ Scan completed - No detailed report available" >> sast-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: frontend-sast-report
+        path: |
+          semgrep-frontend-results.json
+          results.sarif
+          sast-scan-summary.md
+        retention-days: 30
+
+  backend-sast:
+    name: 🔍 Backend SAST Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Backend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.backend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Run Semgrep
+      uses: semgrep/semgrep-action@v1
+      continue-on-error: true
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+      with:
+        config: >-
+          p/security-audit p/javascript p/nodejs p/express p/owasp-top-ten
+        generateSarif: "1"
+
+    - name: Run Semgrep JSON Output
+      continue-on-error: true
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+      run: |
+        semgrep --config=p/security-audit --config=p/javascript --config=p/nodejs --json --output=semgrep-backend-results.json . || true
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 🔍 Backend SAST Scan Results" > sast-scan-summary.md
+        echo "## Repository: ${{ inputs.backend_repo }}" >> sast-scan-summary.md
+        echo "## Scan Date: $(date)" >> sast-scan-summary.md
+        echo "" >> sast-scan-summary.md
+
+        if [ -f semgrep-backend-results.json ]; then
+          # Parse Semgrep JSON report
+          TOTAL_FINDINGS=$(jq '.results | length' semgrep-backend-results.json 2>/dev/null || echo "0")
+          HIGH_FINDINGS=$(jq '[.results[] | select(.extra.severity == "HIGH")] | length' semgrep-backend-results.json 2>/dev/null || echo "0")
+          MEDIUM_FINDINGS=$(jq '[.results[] | select(.extra.severity == "MEDIUM")] | length' semgrep-backend-results.json 2>/dev/null || echo "0")
+          LOW_FINDINGS=$(jq '[.results[] | select(.extra.severity == "LOW")] | length' semgrep-backend-results.json 2>/dev/null || echo "0")
+          ERROR_FINDINGS=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-backend-results.json 2>/dev/null || echo "0")
+          
+          echo "### Security Findings Summary:" >> sast-scan-summary.md
+          echo "- 🔴 Error: $ERROR_FINDINGS" >> sast-scan-summary.md
+          echo "- 🟠 High: $HIGH_FINDINGS" >> sast-scan-summary.md
+          echo "- 🟡 Medium: $MEDIUM_FINDINGS" >> sast-scan-summary.md
+          echo "- 🟢 Low: $LOW_FINDINGS" >> sast-scan-summary.md
+          echo "- **Total**: $TOTAL_FINDINGS" >> sast-scan-summary.md
+          echo "" >> sast-scan-summary.md
+          
+          if [ "$TOTAL_FINDINGS" -gt 0 ]; then
+            echo "### ⚠️ Action Required: $TOTAL_FINDINGS security issues found" >> sast-scan-summary.md
+            echo "Please review the detailed report and fix security vulnerabilities." >> sast-scan-summary.md
+            echo "" >> sast-scan-summary.md
+            
+            # Show top 5 high/error findings
+            echo "### Top Priority Issues:" >> sast-scan-summary.md
+            jq -r '.results[] | select(.extra.severity == "HIGH" or .extra.severity == "ERROR") | "- **\(.check_id)**: \(.extra.message) (Line: \(.start.line))"' semgrep-backend-results.json | head -5 >> sast-scan-summary.md 2>/dev/null || true
+          else
+            echo "### ✅ No security issues detected" >> sast-scan-summary.md
+          fi
+        else
+          echo "### ℹ️ Scan completed - No detailed report available" >> sast-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: backend-sast-report
+        path: |
+          semgrep-backend-results.json
+          results.sarif
+          sast-scan-summary.md
+        retention-days: 30

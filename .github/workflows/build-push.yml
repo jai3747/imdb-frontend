@@ -1,0 +1,228 @@
+name: Build and Push Docker Images
+
+on:
+  workflow_call:
+    inputs:
+      frontend_repo:
+        required: true
+        type: string
+      backend_repo:
+        required: true
+        type: string
+      frontend_image:
+        required: true
+        type: string
+      backend_image:
+        required: true
+        type: string
+      backend_api_url:
+        required: true
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_PASSWORD:
+        required: true
+      MONGO_URL:
+        required: true
+
+jobs:
+  frontend-build:
+    name: 🚀 Frontend Build & Push
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean environment
+      run: |
+        rm -rf $HOME/fresh-workspace || true
+        mkdir -p $HOME/fresh-workspace/frontend
+
+    - name: Checkout Latest Frontend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.frontend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        path: $HOME/fresh-workspace/frontend
+        fetch-depth: 1
+        ref: main
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "18"
+
+    - name: Clean npm cache and node_modules
+      run: |
+        npm cache clean --force
+        rm -rf $HOME/fresh-workspace/frontend/node_modules || true
+
+    - name: Install Frontend Dependencies
+      working-directory: $HOME/fresh-workspace/frontend
+      run: |
+        npm ci --no-cache --legacy-peer-deps
+
+    - name: Configure Environment
+      working-directory: $HOME/fresh-workspace/frontend
+      run: |
+        echo "REACT_APP_API_URL=${{ inputs.backend_api_url }}" > .env
+        echo "REACT_APP_API_TIMEOUT=30000" >> .env
+        echo "NODE_ENV=production" >> .env
+
+        # Also ensure env is passed to Docker build
+        if [ -f "src/config.js" ]; then
+          sed -i "s|http://.*|${{ inputs.backend_api_url }}'|g" src/config.js
+        fi
+
+        if [ -f "src/services/api.service.js" ]; then
+          sed -i "s|http://.*|${{ inputs.backend_api_url }}|g" src/services/api.service.js
+        fi
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Generate build timestamp
+      id: timestamp
+      run: echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Build and Push Frontend Image
+      uses: docker/build-push-action@v5
+      with:
+        context: $HOME/fresh-workspace/frontend
+        push: true
+        tags: |
+          ${{ inputs.frontend_image }}:latest
+          ${{ inputs.frontend_image }}:${{ steps.timestamp.outputs.timestamp }}
+        build-args: |
+          NODE_ENV=production
+          REACT_APP_API_URL=${{ inputs.backend_api_url }}
+          REACT_APP_API_TIMEOUT=30000
+        cache-from: type=registry,ref=${{ inputs.frontend_image }}:buildcache
+        cache-to: type=inline
+        no-cache: true
+        pull: true
+
+    - name: Generate Build Summary
+      run: |
+        echo "# 🚀 Frontend Build Summary" > frontend-build-summary.md
+        echo "## Repository: ${{ inputs.frontend_repo }}" >> frontend-build-summary.md
+        echo "## Build Date: $(date)" >> frontend-build-summary.md
+        echo "## Image Tags:" >> frontend-build-summary.md
+        echo "- \`${{ inputs.frontend_image }}:latest\`" >> frontend-build-summary.md
+        echo "- \`${{ inputs.frontend_image }}:${{ steps.timestamp.outputs.timestamp }}\`" >> frontend-build-summary.md
+        echo "" >> frontend-build-summary.md
+        echo "### Build Configuration:" >> frontend-build-summary.md
+        echo "- **API URL**: ${{ inputs.backend_api_url }}" >> frontend-build-summary.md
+        echo "- **Node Version**: 18" >> frontend-build-summary.md
+        echo "- **Environment**: Production" >> frontend-build-summary.md
+        echo "" >> frontend-build-summary.md
+        echo "### ✅ Frontend build completed successfully" >> frontend-build-summary.md
+
+    - name: Upload Build Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-build-summary
+        path: frontend-build-summary.md
+        retention-days: 30
+
+  backend-build:
+    name: 🚀 Backend Build & Push
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean environment
+      run: |
+        rm -rf $HOME/fresh-workspace || true
+        mkdir -p $HOME/fresh-workspace/backend
+
+    - name: Checkout Latest Backend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.backend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        path: $HOME/fresh-workspace/backend
+        fetch-depth: 1
+        ref: main
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "18"
+
+    - name: Clean npm cache and node_modules
+      run: |
+        npm cache clean --force
+        rm -rf $HOME/fresh-workspace/backend/node_modules || true
+
+    - name: Install Backend Dependencies
+      working-directory: $HOME/fresh-workspace/backend
+      run: |
+        npm ci --no-cache
+
+    - name: Configure Backend Environment
+      working-directory: $HOME/fresh-workspace/backend
+      run: |
+        echo "NODE_ENV=production" > .env
+        echo "MONGO_URL=${{ secrets.MONGO_URL }}" >> .env
+        echo "PORT=5000" >> .env
+        echo "CORS_ORIGIN=*" >> .env
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Generate build timestamp
+      id: timestamp
+      run: echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Build and Push Backend Image
+      uses: docker/build-push-action@v5
+      with:
+        context: $HOME/fresh-workspace/backend
+        push: true
+        tags: |
+          ${{ inputs.backend_image }}:latest
+          ${{ inputs.backend_image }}:${{ steps.timestamp.outputs.timestamp }}
+        build-args: |
+          NODE_ENV=production
+          MONGO_URL=${{ secrets.MONGO_URL }}
+          PORT=5000
+          CORS_ORIGIN=*
+        cache-from: type=registry,ref=${{ inputs.backend_image }}:buildcache
+        cache-to: type=inline
+        no-cache: true
+        pull: true
+
+    - name: Generate Build Summary
+      run: |
+        echo "# 🚀 Backend Build Summary" > backend-build-summary.md
+        echo "## Repository: ${{ inputs.backend_repo }}" >> backend-build-summary.md
+        echo "## Build Date: $(date)" >> backend-build-summary.md
+        echo "## Image Tags:" >> backend-build-summary.md
+        echo "- \`${{ inputs.backend_image }}:latest\`" >> backend-build-summary.md
+        echo "- \`${{ inputs.backend_image }}:${{ steps.timestamp.outputs.timestamp }}\`" >> backend-build-summary.md
+        echo "" >> backend-build-summary.md
+        echo "### Build Configuration:" >> backend-build-summary.md
+        echo "- **Node Version**: 18" >> backend-build-summary.md
+        echo "- **Environment**: Production" >> backend-build-summary.md
+        echo "- **Port**: 5000" >> backend-build-summary.md
+        echo "- **CORS Origin**: *" >> backend-build-summary.md
+        echo "" >> backend-build-summary.md
+        echo "### ✅ Backend build completed successfully" >> backend-build-summary.md
+
+    - name: Upload Build Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-build-summary
+        path: backend-build-summary.md
+        retention-days: 30

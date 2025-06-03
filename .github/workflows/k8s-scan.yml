@@ -1,0 +1,307 @@
+name: Kubernetes Security Scanning
+
+on:
+  workflow_call:
+    inputs:
+      frontend_repo:
+        required: true
+        type: string
+      backend_repo:
+        required: true
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+
+jobs:
+  frontend-k8s:
+    name: 🛡️ Frontend K8s Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Frontend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.frontend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Install kubesec
+      run: |
+        wget -q https://github.com/controlplaneio/kubesec/releases/download/v2.14.0/kubesec_linux_amd64.tar.gz
+        tar xzf kubesec_linux_amd64.tar.gz
+        sudo mv kubesec /usr/local/bin/
+        chmod +x /usr/local/bin/kubesec
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Find K8s manifests
+      id: find_manifests
+      run: |
+        echo "Finding Kubernetes manifest files..."
+        MANIFESTS=$(find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kubernetes|deploy|manifest)" | head -10)
+
+        # Also look for common K8s files
+        for file in backup.yaml backup-pipeline.yaml pipeline.yaml deployment.yaml service.yaml configmap.yaml; do
+          if [ -f "$file" ]; then
+            MANIFESTS="$MANIFESTS $file"
+          fi
+        done
+
+        echo "Found manifests: $MANIFESTS"
+        echo "manifests=$MANIFESTS" >> $GITHUB_OUTPUT
+
+    - name: Run kubesec scans
+      continue-on-error: true
+      run: |
+        mkdir -p kubesec-reports
+        SCAN_COUNT=0
+
+        # Scan individual files
+        for file in ${{ steps.find_manifests.outputs.manifests }}; do
+          if [ -f "$file" ] && [ -s "$file" ]; then
+            echo "Scanning $file..."
+            filename=$(basename "$file" | sed 's/\.[^.]*$//')
+            kubesec scan -f json "$file" > "kubesec-reports/kubesec-frontend-${filename}-report.json" 2>/dev/null || true
+            SCAN_COUNT=$((SCAN_COUNT + 1))
+          fi
+        done
+
+        echo "Scanned $SCAN_COUNT files"
+        echo "scan_count=$SCAN_COUNT" >> $GITHUB_ENV
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 🛡️ Frontend K8s Security Scan Results" > k8s-scan-summary.md
+        echo "## Repository: ${{ inputs.frontend_repo }}" >> k8s-scan-summary.md
+        echo "## Scan Date: $(date)" >> k8s-scan-summary.md
+        echo "## Files Scanned: ${{ env.scan_count || 0 }}" >> k8s-scan-summary.md
+        echo "" >> k8s-scan-summary.md
+
+        TOTAL_SCORE=0
+        TOTAL_FILES=0
+        CRITICAL_ISSUES=0
+
+        if [ -d "kubesec-reports" ] && [ "$(ls -A kubesec-reports/)" ]; then
+          echo "### Security Scores by File:" >> k8s-scan-summary.md
+          
+          for report in kubesec-reports/*.json; do
+            if [ -f "$report" ] && [ -s "$report" ]; then
+              FILENAME=$(basename "$report" .json | sed 's/kubesec-frontend-//' | sed 's/-report//')
+              SCORE=$(jq '.[0].score // 0' "$report" 2>/dev/null || echo "0")
+              CRITICAL=$(jq '.[0].scoring.critical // [] | length' "$report" 2>/dev/null || echo "0")
+              PASSED=$(jq '.[0].scoring.passed // [] | length' "$report" 2>/dev/null || echo "0")
+              
+              echo "- **$FILENAME**: Score $SCORE (Critical: $CRITICAL, Passed: $PASSED)" >> k8s-scan-summary.md
+              
+              TOTAL_SCORE=$((TOTAL_SCORE + SCORE))
+              TOTAL_FILES=$((TOTAL_FILES + 1))
+              CRITICAL_ISSUES=$((CRITICAL_ISSUES + CRITICAL))
+            fi
+          done
+          
+          if [ "$TOTAL_FILES" -gt 0 ]; then
+            AVERAGE_SCORE=$((TOTAL_SCORE / TOTAL_FILES))
+            echo "" >> k8s-scan-summary.md
+            echo "### Overall Summary:" >> k8s-scan-summary.md
+            echo "- **Average Security Score**: $AVERAGE_SCORE" >> k8s-scan-summary.md
+            echo "- **Total Critical Issues**: $CRITICAL_ISSUES" >> k8s-scan-summary.md
+            echo "" >> k8s-scan-summary.md
+            
+            if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+              echo "### ⚠️ Action Required: $CRITICAL_ISSUES critical security issues found" >> k8s-scan-summary.md
+              echo "Please review Kubernetes configurations for security best practices." >> k8s-scan-summary.md
+            elif [ "$AVERAGE_SCORE" -lt 0 ]; then
+              echo "### ⚠️ Below average security score. Consider security improvements." >> k8s-scan-summary.md
+            else
+              echo "### ✅ Good security configuration" >> k8s-scan-summary.md
+            fi
+          fi
+        else
+          echo "### ℹ️ No Kubernetes manifests found to scan" >> k8s-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: frontend-k8s-reports
+        path: |
+          kubesec-reports/
+          k8s-scan-summary.md
+        retention-days: 30
+
+  backend-k8s:
+    name: 🛡️ Backend K8s Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Backend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.backend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Install kubesec
+      run: |
+        wget -q https://github.com/controlplaneio/kubesec/releases/download/v2.14.0/kubesec_linux_amd64.tar.gz
+        tar xzf kubesec_linux_amd64.tar.gz
+        sudo mv kubesec /usr/local/bin/
+        chmod +x /usr/local/bin/kubesec
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'v3.13.0'
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Find K8s manifests and Helm charts
+      id: find_manifests
+      run: |
+        echo "Finding Kubernetes manifest files..."
+        MANIFESTS=""
+
+        # Find YAML files that look like K8s manifests
+        YAML_FILES=$(find . -name "*.yaml" -o -name "*.yml" | grep -v node_modules | head -20)
+        for file in $YAML_FILES; do
+          if grep -q "apiVersion\|kind:" "$file" 2>/dev/null; then
+            MANIFESTS="$MANIFESTS $file"
+          fi
+        done
+
+        # Look for specific files mentioned in original pipeline
+        for file in k8.yaml test-working-fine.yaml all-tested-pipeline.yaml deployment.yaml service.yaml; do
+          if [ -f "$file" ]; then
+            MANIFESTS="$MANIFESTS $file"
+          fi
+        done
+
+        echo "Found manifests: $MANIFESTS"
+        echo "manifests=$MANIFESTS" >> $GITHUB_OUTPUT
+
+    - name: Generate Helm templates
+      continue-on-error: true
+      run: |
+        # Look for Helm charts
+        if [ -d "charts" ] || [ -d "helm" ] || [ -f "Chart.yaml" ]; then
+          echo "Found Helm chart, generating templates..."
+          if [ -d "imdb-clone" ]; then
+            helm template imdb-clone ./imdb-clone > all-manifests.yaml || true
+          elif [ -f "Chart.yaml" ]; then
+            helm template . > all-manifests.yaml || true
+          elif [ -d "charts" ]; then
+            for chart in charts/*/; do
+              if [ -d "$chart" ]; then
+                helm template "$(basename "$chart")" "$chart" >> all-manifests.yaml || true
+              fi
+            done
+          fi
+        fi
+
+    - name: Run kubesec scans
+      continue-on-error: true
+      run: |
+        mkdir -p kubesec-reports
+        SCAN_COUNT=0
+
+        # Scan individual manifest files
+        for file in ${{ steps.find_manifests.outputs.manifests }}; do
+          if [ -f "$file" ] && [ -s "$file" ]; then
+            echo "Scanning $file..."
+            filename=$(basename "$file" | sed 's/\.[^.]*$//')
+            kubesec scan -f json "$file" > "kubesec-reports/kubesec-backend-${filename}-report.json" 2>/dev/null || true
+            SCAN_COUNT=$((SCAN_COUNT + 1))
+          fi
+        done
+
+        # Scan Helm generated manifests
+        if [ -f "all-manifests.yaml" ] && [ -s "all-manifests.yaml" ]; then
+          echo "Scanning Helm generated manifests..."
+          kubesec scan -f json all-manifests.yaml > kubesec-reports/kubesec-backend-helm-report.json 2>/dev/null || true
+          SCAN_COUNT=$((SCAN_COUNT + 1))
+        fi
+
+        echo "Scanned $SCAN_COUNT files"
+        echo "scan_count=$SCAN_COUNT" >> $GITHUB_ENV
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 🛡️ Backend K8s Security Scan Results" > k8s-scan-summary.md
+        echo "## Repository: ${{ inputs.backend_repo }}" >> k8s-scan-summary.md
+        echo "## Scan Date: $(date)" >> k8s-scan-summary.md
+        echo "## Files Scanned: ${{ env.scan_count || 0 }}" >> k8s-scan-summary.md
+        echo "" >> k8s-scan-summary.md
+
+        TOTAL_SCORE=0
+        TOTAL_FILES=0
+        CRITICAL_ISSUES=0
+
+        if [ -d "kubesec-reports" ] && [ "$(ls -A kubesec-reports/)" ]; then
+          echo "### Security Scores by File:" >> k8s-scan-summary.md
+          
+          for report in kubesec-reports/*.json; do
+            if [ -f "$report" ] && [ -s "$report" ]; then
+              FILENAME=$(basename "$report" .json | sed 's/kubesec-backend-//' | sed 's/-report//')
+              SCORE=$(jq '.[0].score // 0' "$report" 2>/dev/null || echo "0")
+              CRITICAL=$(jq '.[0].scoring.critical // [] | length' "$report" 2>/dev/null || echo "0")
+              PASSED=$(jq '.[0].scoring.passed // [] | length' "$report" 2>/dev/null || echo "0")
+              
+              echo "- **$FILENAME**: Score $SCORE (Critical: $CRITICAL, Passed: $PASSED)" >> k8s-scan-summary.md
+              
+              TOTAL_SCORE=$((TOTAL_SCORE + SCORE))
+              TOTAL_FILES=$((TOTAL_FILES + 1))
+              CRITICAL_ISSUES=$((CRITICAL_ISSUES + CRITICAL))
+            fi
+          done
+          
+          if [ "$TOTAL_FILES" -gt 0 ]; then
+            AVERAGE_SCORE=$((TOTAL_SCORE / TOTAL_FILES))
+            echo "" >> k8s-scan-summary.md
+            echo "### Overall Summary:" >> k8s-scan-summary.md
+            echo "- **Average Security Score**: $AVERAGE_SCORE" >> k8s-scan-summary.md
+            echo "- **Total Critical Issues**: $CRITICAL_ISSUES" >> k8s-scan-summary.md
+            echo "" >> k8s-scan-summary.md
+            
+            if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+              echo "### ⚠️ Action Required: $CRITICAL_ISSUES critical security issues found" >> k8s-scan-summary.md
+              echo "Please review Kubernetes configurations for security best practices." >> k8s-scan-summary.md
+            elif [ "$AVERAGE_SCORE" -lt 0 ]; then
+              echo "### ⚠️ Below average security score. Consider security improvements." >> k8s-scan-summary.md
+            else
+              echo "### ✅ Good security configuration" >> k8s-scan-summary.md
+            fi
+          fi
+        else
+          echo "### ℹ️ No Kubernetes manifests found to scan" >> k8s-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: backend-k8s-reports
+        path: |
+          kubesec-reports/
+          k8s-scan-summary.md
+          all-manifests.yaml
+        retention-days: 30

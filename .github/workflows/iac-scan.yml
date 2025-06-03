@@ -1,0 +1,187 @@
+name: IaC (Infrastructure as Code) Scanning
+
+on:
+  workflow_call:
+    inputs:
+      frontend_repo:
+        required: true
+        type: string
+      backend_repo:
+        required: true
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+
+jobs:
+  frontend-iac:
+    name: 🏗️ Frontend IaC Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Frontend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.frontend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install Checkov
+      run: |
+        pip install checkov
+
+    - name: Run Checkov Scan
+      continue-on-error: true
+      run: |
+        checkov -d . --framework dockerfile,kubernetes,secrets,github_actions \
+          --output json --output-file checkov-frontend-report.json || true
+
+    - name: Run Checkov CLI Output
+      continue-on-error: true
+      run: |
+        checkov -d . --framework dockerfile,kubernetes,secrets,github_actions \
+          --output cli > checkov-frontend-output.txt || true
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 🏗️ Frontend IaC Scan Results" > iac-scan-summary.md
+        echo "## Repository: ${{ inputs.frontend_repo }}" >> iac-scan-summary.md
+        echo "## Scan Date: $(date)" >> iac-scan-summary.md
+        echo "" >> iac-scan-summary.md
+
+        if [ -f checkov-frontend-report.json ]; then
+          # Parse Checkov JSON report
+          TOTAL_CHECKS=$(jq '.summary.parsing_errors + .summary.passed_checks + .summary.failed_checks + .summary.skipped_checks' checkov-frontend-report.json 2>/dev/null || echo "0")
+          FAILED_CHECKS=$(jq '.summary.failed_checks' checkov-frontend-report.json 2>/dev/null || echo "0")
+          PASSED_CHECKS=$(jq '.summary.passed_checks' checkov-frontend-report.json 2>/dev/null || echo "0")
+          SKIPPED_CHECKS=$(jq '.summary.skipped_checks' checkov-frontend-report.json 2>/dev/null || echo "0")
+          
+          echo "### IaC Security Summary:" >> iac-scan-summary.md
+          echo "- 🔴 Failed Checks: $FAILED_CHECKS" >> iac-scan-summary.md
+          echo "- ✅ Passed Checks: $PASSED_CHECKS" >> iac-scan-summary.md
+          echo "- ⏭️ Skipped Checks: $SKIPPED_CHECKS" >> iac-scan-summary.md
+          echo "- **Total Checks**: $TOTAL_CHECKS" >> iac-scan-summary.md
+          echo "" >> iac-scan-summary.md
+          
+          if [ "$FAILED_CHECKS" -gt 0 ]; then
+            echo "### ⚠️ Action Required: $FAILED_CHECKS infrastructure security issues found" >> iac-scan-summary.md
+            echo "Please review Dockerfiles, Kubernetes manifests, and other IaC files." >> iac-scan-summary.md
+            echo "" >> iac-scan-summary.md
+            
+            # Show top 5 failed checks
+            echo "### Top Priority Issues:" >> iac-scan-summary.md
+            jq -r '.results.failed_checks[:5][] | "- **\(.check_id)**: \(.check_name) in \(.file_path)"' checkov-frontend-report.json >> iac-scan-summary.md 2>/dev/null || true
+          else
+            echo "### ✅ No infrastructure security issues detected" >> iac-scan-summary.md
+          fi
+        else
+          echo "### ℹ️ Scan completed - No detailed report available" >> iac-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: frontend-iac-report
+        path: |
+          checkov-frontend-report.json
+          checkov-frontend-output.txt
+          iac-scan-summary.md
+        retention-days: 30
+
+  backend-iac:
+    name: 🏗️ Backend IaC Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Backend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.backend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install Checkov
+      run: |
+        pip install checkov
+
+    - name: Run Checkov Scan
+      continue-on-error: true
+      run: |
+        checkov -d . --framework dockerfile,kubernetes,secrets,github_actions \
+          --output json --output-file checkov-backend-report.json || true
+
+    - name: Run Checkov CLI Output
+      continue-on-error: true
+      run: |
+        checkov -d . --framework dockerfile,kubernetes,secrets,github_actions \
+          --output cli > checkov-backend-output.txt || true
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 🏗️ Backend IaC Scan Results" > iac-scan-summary.md
+        echo "## Repository: ${{ inputs.backend_repo }}" >> iac-scan-summary.md
+        echo "## Scan Date: $(date)" >> iac-scan-summary.md
+        echo "" >> iac-scan-summary.md
+
+        if [ -f checkov-backend-report.json ]; then
+          # Parse Checkov JSON report
+          TOTAL_CHECKS=$(jq '.summary.parsing_errors + .summary.passed_checks + .summary.failed_checks + .summary.skipped_checks' checkov-backend-report.json 2>/dev/null || echo "0")
+          FAILED_CHECKS=$(jq '.summary.failed_checks' checkov-backend-report.json 2>/dev/null || echo "0")
+          PASSED_CHECKS=$(jq '.summary.passed_checks' checkov-backend-report.json 2>/dev/null || echo "0")
+          SKIPPED_CHECKS=$(jq '.summary.skipped_checks' checkov-backend-report.json 2>/dev/null || echo "0")
+          
+          echo "### IaC Security Summary:" >> iac-scan-summary.md
+          echo "- 🔴 Failed Checks: $FAILED_CHECKS" >> iac-scan-summary.md
+          echo "- ✅ Passed Checks: $PASSED_CHECKS" >> iac-scan-summary.md
+          echo "- ⏭️ Skipped Checks: $SKIPPED_CHECKS" >> iac-scan-summary.md
+          echo "- **Total Checks**: $TOTAL_CHECKS" >> iac-scan-summary.md
+          echo "" >> iac-scan-summary.md
+          
+          if [ "$FAILED_CHECKS" -gt 0 ]; then
+            echo "### ⚠️ Action Required: $FAILED_CHECKS infrastructure security issues found" >> iac-scan-summary.md
+            echo "Please review Dockerfiles, Kubernetes manifests, and other IaC files." >> iac-scan-summary.md
+            echo "" >> iac-scan-summary.md
+            
+            # Show top 5 failed checks
+            echo "### Top Priority Issues:" >> iac-scan-summary.md
+            jq -r '.results.failed_checks[:5][] | "- **\(.check_id)**: \(.check_name) in \(.file_path)"' checkov-backend-report.json >> iac-scan-summary.md 2>/dev/null || true
+          else
+            echo "### ✅ No infrastructure security issues detected" >> iac-scan-summary.md
+          fi
+        else
+          echo "### ℹ️ Scan completed - No detailed report available" >> iac-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: backend-iac-report
+        path: |
+          checkov-backend-report.json
+          checkov-backend-output.txt
+          iac-scan-summary.md
+        retention-days: 30

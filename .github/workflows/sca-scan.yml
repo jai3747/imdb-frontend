@@ -1,0 +1,185 @@
+name: SCA (Software Composition Analysis) Scanning
+
+on:
+  workflow_call:
+    inputs:
+      frontend_repo:
+        required: true
+        type: string
+      backend_repo:
+        required: true
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+      SNYK_TOKEN:
+        required: true
+
+jobs:
+  frontend-sca:
+    name: 📦 Frontend SCA Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Frontend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.frontend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+
+    - name: Run Snyk Test
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        npx snyk test --json > snyk-frontend-report.json || true
+
+    - name: Run Snyk Monitor
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        npx snyk monitor || true
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 📦 Frontend SCA Scan Results" > sca-scan-summary.md
+        echo "## Repository: ${{ inputs.frontend_repo }}" >> sca-scan-summary.md
+        echo "## Scan Date: $(date)" >> sca-scan-summary.md
+        echo "" >> sca-scan-summary.md
+
+        if [ -f snyk-frontend-report.json ]; then
+          # Parse Snyk JSON report
+          HIGH_VULNS=$(jq '.vulnerabilities | map(select(.severity == "high")) | length' snyk-frontend-report.json 2>/dev/null || echo "0")
+          CRITICAL_VULNS=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length' snyk-frontend-report.json 2>/dev/null || echo "0")
+          MEDIUM_VULNS=$(jq '.vulnerabilities | map(select(.severity == "medium")) | length' snyk-frontend-report.json 2>/dev/null || echo "0")
+          LOW_VULNS=$(jq '.vulnerabilities | map(select(.severity == "low")) | length' snyk-frontend-report.json 2>/dev/null || echo "0")
+          
+          echo "### Vulnerability Summary:" >> sca-scan-summary.md
+          echo "- 🔴 Critical: $CRITICAL_VULNS" >> sca-scan-summary.md
+          echo "- 🟠 High: $HIGH_VULNS" >> sca-scan-summary.md
+          echo "- 🟡 Medium: $MEDIUM_VULNS" >> sca-scan-summary.md
+          echo "- 🟢 Low: $LOW_VULNS" >> sca-scan-summary.md
+          echo "" >> sca-scan-summary.md
+          
+          TOTAL_VULNS=$((CRITICAL_VULNS + HIGH_VULNS + MEDIUM_VULNS + LOW_VULNS))
+          if [ "$TOTAL_VULNS" -gt 0 ]; then
+            echo "### ⚠️ Action Required: $TOTAL_VULNS vulnerabilities found" >> sca-scan-summary.md
+            echo "Please review dependencies and update to secure versions." >> sca-scan-summary.md
+          else
+            echo "### ✅ No vulnerabilities detected" >> sca-scan-summary.md
+          fi
+        else
+          echo "### ℹ️ Scan completed - No detailed report available" >> sca-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: frontend-sca-report
+        path: |
+          snyk-frontend-report.json
+          sca-scan-summary.md
+        retention-days: 30
+
+  backend-sca:
+    name: 📦 Backend SCA Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean workspace
+      run: |
+        rm -rf * || true
+        rm -rf .git || true
+        rm -rf .[^.]* || true
+
+    - name: Checkout Backend Code
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.backend_repo }}
+        token: ${{ secrets.GH_PAT }}
+        clean: true
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci || npm install
+
+    - name: Run Snyk Test
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        npx snyk test --json > snyk-backend-report.json || true
+
+    - name: Run Snyk Monitor
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        npx snyk monitor || true
+
+    - name: Generate Summary Report
+      if: always()
+      run: |
+        echo "# 📦 Backend SCA Scan Results" > sca-scan-summary.md
+        echo "## Repository: ${{ inputs.backend_repo }}" >> sca-scan-summary.md
+        echo "## Scan Date: $(date)" >> sca-scan-summary.md
+        echo "" >> sca-scan-summary.md
+
+        if [ -f snyk-backend-report.json ]; then
+          # Parse Snyk JSON report
+          HIGH_VULNS=$(jq '.vulnerabilities | map(select(.severity == "high")) | length' snyk-backend-report.json 2>/dev/null || echo "0")
+          CRITICAL_VULNS=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length' snyk-backend-report.json 2>/dev/null || echo "0")
+          MEDIUM_VULNS=$(jq '.vulnerabilities | map(select(.severity == "medium")) | length' snyk-backend-report.json 2>/dev/null || echo "0")
+          LOW_VULNS=$(jq '.vulnerabilities | map(select(.severity == "low")) | length' snyk-backend-report.json 2>/dev/null || echo "0")
+          
+          echo "### Vulnerability Summary:" >> sca-scan-summary.md
+          echo "- 🔴 Critical: $CRITICAL_VULNS" >> sca-scan-summary.md
+          echo "- 🟠 High: $HIGH_VULNS" >> sca-scan-summary.md
+          echo "- 🟡 Medium: $MEDIUM_VULNS" >> sca-scan-summary.md
+          echo "- 🟢 Low: $LOW_VULNS" >> sca-scan-summary.md
+          echo "" >> sca-scan-summary.md
+          
+          TOTAL_VULNS=$((CRITICAL_VULNS + HIGH_VULNS + MEDIUM_VULNS + LOW_VULNS))
+          if [ "$TOTAL_VULNS" -gt 0 ]; then
+            echo "### ⚠️ Action Required: $TOTAL_VULNS vulnerabilities found" >> sca-scan-summary.md
+            echo "Please review dependencies and update to secure versions." >> sca-scan-summary.md
+          else
+            echo "### ✅ No vulnerabilities detected" >> sca-scan-summary.md
+          fi
+        else
+          echo "### ℹ️ Scan completed - No detailed report available" >> sca-scan-summary.md
+        fi
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: backend-sca-report
+        path: |
+          snyk-backend-report.json
+          sca-scan-summary.md
+        retention-days: 30
